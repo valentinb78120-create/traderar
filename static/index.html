@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>TradeRadar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0d0d15" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="TradeRadar" />
+  <link rel="icon" type="image/svg+xml" href="/static/icon.svg" />
+  <link rel="apple-touch-icon" href="/static/icon.svg" />
+</head>
+<body>
+  <a href="#mainContent" class="skip-link">Aller au contenu principal</a>
+  <header>
+    <div class="header-left">
+      <span class="logo">Trade<span class="accent">Radar</span></span>
+      <span class="live-dot" title="Données en direct"></span>
+      <span class="last-update" id="lastUpdate">En attente de données…</span>
+    </div>
+    <div class="search-wrap">
+      <label for="searchInput" class="sr-only">Rechercher un ticker ou un nom</label>
+      <input type="text" id="searchInput" class="search-input" placeholder="Rechercher un ticker ou un nom… (ex: Tesla, BABA, BTC)" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="searchDropdown" aria-autocomplete="list" />
+      <div id="searchDropdown" class="search-dropdown" role="listbox"></div>
+    </div>
+
+    <div class="header-actions">
+      <button class="toggle-btn" onclick="toggleTVMode()" aria-label="Activer le mode plein écran TV" title="Mode plein écran TV (police agrandie + auto-refresh)">
+        📺
+      </button>
+      <button class="toggle-btn" id="eurToggleBtn" onclick="toggleEUR()" title="Convertir tous les prix en EUR">
+        <span class="toggle-dot"></span> Tout en €
+      </button>
+      <button class="toggle-btn" id="trToggleBtn" onclick="toggleTR()" title="Filtrer pour n'afficher que ce qui est disponible sur Trade Republic">
+        <span class="toggle-dot"></span> Trade Republic
+      </button>
+      <select class="filter-select" id="autoRefreshSelect" onchange="setAutoRefresh(this.value)" title="Actualisation automatique">
+        <option value="0">⏸ Auto OFF</option>
+        <option value="60">⏱ 1 min</option>
+        <option value="300">⏱ 5 min</option>
+        <option value="900">⏱ 15 min</option>
+      </select>
+      <button class="refresh-btn" id="refreshBtn" onclick="refreshAll()">
+        <span class="refresh-icon">↻</span> Actualiser
+      </button>
+    </div>
+  </header>
+
+  <div class="indices-bar-wrap">
+    <div class="indices-bar" id="indicesBar"></div>
+  </div>
+
+  <div class="history-bar" id="historyBar"></div>
+
+  <main id="mainContent">
+    <!-- ── Portefeuille simulé ─────────────────────────────────────── -->
+    <section class="dashboard-section" id="portfolioSection" style="display:none">
+      <div class="section-header accent-green">
+        <h2>💼 Portefeuille simulé <button class="help-btn" onclick="toggleHelp('helpPortfolio', this)" title="C'est quoi ?">?</button></h2>
+        <span class="section-subtitle">Vos positions fictives · P&amp;L temps réel</span>
+      </div>
+      <div id="helpPortfolio" class="help-panel"></div>
+      <div id="portfolioSummary" class="portfolio-summary"></div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+        <button class="chip" onclick="exportPortfolioCSV()" title="Télécharger le portefeuille en CSV">📥 Export CSV</button>
+      </div>
+      <div id="portfolioList"></div>
+    </section>
+
+    <!-- ── Section 0 : Ma watchlist ─────────────────────────────────── -->
+    <section class="dashboard-section" id="watchlistSection" style="display:none">
+      <div class="section-header accent-yellow">
+        <h2>⭐ Ma watchlist</h2>
+        <span class="section-subtitle">Vos actions favorites · stockées dans ce navigateur</span>
+      </div>
+      <div id="watchlistFilterBar" class="filter-bar"></div>
+      <div id="watchlistGrid" class="cards-grid"></div>
+    </section>
+
+    <!-- ── Section 1 : Actions en forme ─────────────────────────────── -->
+    <section class="dashboard-section">
+      <div class="section-header accent-green">
+        <h2>Actions en forme</h2>
+        <span class="section-subtitle">Opportunités haussières du jour · CAC 40 · S&amp;P 500 · DAX</span>
+      </div>
+      <div id="stocksFilterBar" class="filter-bar"></div>
+      <div id="stocksGrid" class="cards-grid">
+        <div class="loading-placeholder"><span class="spinner"></span>Chargement…</div>
+      </div>
+    </section>
+
+    <!-- ── Section 1.5 : Top Gainers / Losers ──────────────────────── -->
+    <section class="dashboard-section">
+      <div class="section-header accent-orange">
+        <h2>Top mouvements du jour</h2>
+        <span class="section-subtitle">Plus fortes hausses et baisses</span>
+      </div>
+      <div class="movers-grid">
+        <div class="movers-col">
+          <div class="movers-col-header gainers">
+            <span class="movers-col-title">↗ Plus fortes hausses</span>
+          </div>
+          <div id="gainersList" class="movers-list">
+            <div class="loading-placeholder"><span class="spinner"></span>Chargement…</div>
+          </div>
+        </div>
+        <div class="movers-col">
+          <div class="movers-col-header losers">
+            <span class="movers-col-title">↘ Plus fortes baisses</span>
+          </div>
+          <div id="losersList" class="movers-list">
+            <div class="loading-placeholder"><span class="spinner"></span>Chargement…</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Section 2 : Actualités ────────────────────────────────────── -->
+    <section class="dashboard-section">
+      <div class="section-header accent-blue">
+        <h2>Actualité des marchés <button class="help-btn" onclick="toggleHelp('helpNews', this)" title="Comment fonctionne la détection du sentiment ?">?</button></h2>
+        <span class="section-subtitle">Dernières nouvelles financières</span>
+      </div>
+      <div id="helpNews" class="help-panel"></div>
+      <div id="newsGrid" class="news-grid">
+        <div class="loading-placeholder"><span class="spinner"></span>Chargement…</div>
+      </div>
+    </section>
+
+    <!-- ── Calendrier économique ─────────────────────────────────────── -->
+    <section class="dashboard-section">
+      <div class="section-header accent-yellow">
+        <h2>📅 Calendrier économique <button class="help-btn" onclick="toggleHelp('helpCalendar', this)" title="Comment interpréter le calendrier ?">?</button></h2>
+        <span class="section-subtitle">7 prochains jours · Évènements macro + publications de résultats</span>
+      </div>
+      <div id="helpCalendar" class="help-panel"></div>
+      <div class="calendar-grid">
+        <div class="calendar-col">
+          <div class="movers-col-header" style="background:linear-gradient(to right,rgba(68,153,255,.08),transparent);border-bottom-color:rgba(68,153,255,.2)">
+            <span class="movers-col-title" style="color:var(--blue)">🌐 Macro · Indicateurs économiques</span>
+          </div>
+          <div id="ecoCalendarList" class="movers-list">
+            <div class="loading-placeholder"><span class="spinner"></span>Chargement…</div>
+          </div>
+        </div>
+        <div class="calendar-col">
+          <div class="movers-col-header" style="background:linear-gradient(to right,rgba(255,204,0,.08),transparent);border-bottom-color:rgba(255,204,0,.2)">
+            <span class="movers-col-title" style="color:var(--yellow)">💼 Publications de résultats</span>
+          </div>
+          <div id="earningsCalendarList" class="movers-list">
+            <div class="loading-placeholder"><span class="spinner"></span>Chargement…</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Section 3 : Entreprises Émergentes ───────────────────────── -->
+    <section class="dashboard-section">
+      <div class="section-header accent-yellow">
+        <h2>Entreprises Émergentes</h2>
+        <span class="section-subtitle">Croissance &amp; innovation · EU · US · ETFs thématiques</span>
+      </div>
+      <div id="emergingFilterBar" class="filter-bar"></div>
+      <div id="emergingGrid" class="cards-grid">
+        <div class="loading-placeholder"><span class="spinner"></span>Chargement…</div>
+      </div>
+    </section>
+
+    <!-- ── Section 4 : Crypto ────────────────────────────────────────── -->
+    <section class="dashboard-section">
+      <div class="section-header accent-purple">
+        <h2>Cryptomonnaies <button class="help-btn" onclick="toggleHelp('helpCryptoGlobal', this)" title="Comprendre la dominance BTC/ETH">?</button></h2>
+        <span class="section-subtitle">Prix en temps réel · EUR</span>
+      </div>
+      <div id="helpCryptoGlobal" class="help-panel"></div>
+      <div id="cryptoGlobalBar" class="crypto-global-bar"></div>
+      <div id="cryptoGrid" class="crypto-grid">
+        <div class="loading-placeholder"><span class="spinner"></span>Chargement…</div>
+      </div>
+    </section>
+
+    <!-- ── Section ULTIME : Tout l'univers ─────────────────────────── -->
+    <section class="dashboard-section">
+      <div class="section-header accent-purple">
+        <h2>🌐 Tout voir <button class="help-btn" onclick="toggleHelp('helpAllUniverse', this)" title="C'est quoi cette section ?">?</button></h2>
+        <span class="section-subtitle">Toutes les actions disponibles · Sans aucun filtre prédéfini</span>
+      </div>
+      <div id="helpAllUniverse" class="help-panel"></div>
+      <div id="allFilterBar" class="filter-bar"></div>
+      <div id="allGrid" class="cards-grid">
+        <div class="loading-placeholder"><span class="spinner"></span>Chargement…</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ── Modal détail action ────────────────────────────────────────── -->
+  <div class="modal-backdrop" id="modalBackdrop" onclick="closeModal(event)">
+    <div class="modal-panel" onclick="event.stopPropagation()" role="dialog" aria-modal="true" aria-label="Détail de l'action">
+      <button class="modal-close" onclick="closeModal()" aria-label="Fermer la fenêtre de détail" title="Fermer (Échap)">✕</button>
+      <div id="modalContent">
+        <div class="loading-placeholder"><span class="spinner"></span>Chargement…</div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <span>TradeRadar — outil de recherche personnel. Pas un conseil en investissement.</span>
+    <span>Sources : yfinance · Finnhub · CoinGecko</span>
+  </footer>
+
+  <script src="/static/app.js"></script>
+  <script>
+    // Enregistrement du Service Worker (PWA)
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js', { scope: '/' })
+          .catch((err) => console.warn('SW registration failed:', err));
+      });
+    }
+  </script>
+</body>
+</html>
