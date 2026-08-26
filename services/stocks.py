@@ -23,7 +23,18 @@ CACHE_TTL = 300           # 5 min pour les prix
 FUNDAMENTALS_TTL = 86400  # 24 h pour les fondamentaux
 SENTIMENT_TTL = 3600      # 1 h pour sentiment news + analystes
 
-FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "")
+# Valeurs "gabarit" presentes dans .env.example : si l'utilisateur n'a pas
+# encore remplace le texte, la cle est consideree comme ABSENTE. Sans ca,
+# l'API repond 401 et l'app affiche "Finnhub a repondu 401" au lieu du message
+# clair "ajoutez votre cle dans .env".
+_PLACEHOLDERS = {"votre_cle_ici", "your_key_here", "changeme", "xxx", "none"}
+
+
+def _clean_key(name: str) -> str:
+    """Lit une variable d'environnement, en ignorant les valeurs gabarit."""
+    val = (os.getenv(name) or "").strip().strip('"').strip("'")
+    return "" if val.lower() in _PLACEHOLDERS else val
+FINNHUB_API_KEY = _clean_key("FINNHUB_API_KEY")
 FINNHUB_BASE    = "https://finnhub.io/api/v1"
 
 # Rate limiting Finnhub (free tier = 60 req/min).
@@ -409,6 +420,33 @@ EMERGING_WATCHLIST = [
 ]
 
 
+# ── Cloture de la veille (variation du jour) ──────────────────────────
+
+def _previous_close(meta_yh: dict, closes: list[float], current: float) -> float | None:
+    """Retourne la cloture de la SEANCE PRECEDENTE, pour calculer la variation du jour.
+
+    PIEGE YAHOO : `meta.chartPreviousClose` n'est PAS la cloture de la veille,
+    c'est la cloture juste AVANT la fenetre demandee. Avec range=1y il renvoie
+    donc le prix d'il y a un an (ex. MU : 116 au lieu de 910) → la variation
+    "du jour" affichait +700%. On ne s'en sert jamais ici.
+
+    Ordre de priorite :
+      1. meta.previousClose        → valeur officielle Yahoo (souvent absente sur range=1y)
+      2. closes[-2]                → le dernier bar correspond a la seance en cours
+      3. closes[-1]                → le prix live est plus recent que le dernier bar
+    """
+    prev = meta_yh.get("previousClose")
+    if prev:
+        return float(prev)
+    if len(closes) < 2:
+        return None
+    # Tolerance 0.01 % : le dernier close et le prix live sont la meme seance
+    # (Yahoo arrondit differemment les deux champs).
+    if closes[-1] and abs(current - closes[-1]) / closes[-1] < 1e-4:
+        return float(closes[-2])
+    return float(closes[-1])
+
+
 # ── Yahoo Finance v8 chart : prix + history ───────────────────────────
 
 async def _fetch_yahoo(meta: dict, client: httpx.AsyncClient) -> dict | None:
@@ -422,7 +460,7 @@ async def _fetch_yahoo(meta: dict, client: httpx.AsyncClient) -> dict | None:
             timeout=8,
         )
         if resp.status_code != 200:
-            print(f"[stocks] {symbol} → Yahoo {resp.status_code}")
+            print(f"[stocks] {symbol} - Yahoo HTTP {resp.status_code}")
             return None
         data = resp.json()
         result = data.get("chart", {}).get("result", [])
@@ -459,7 +497,7 @@ async def _fetch_yahoo(meta: dict, client: httpx.AsyncClient) -> dict | None:
             return None
 
         current = float(meta_yh.get("regularMarketPrice") or closes[-1])
-        prev    = float(meta_yh.get("chartPreviousClose") or meta_yh.get("previousClose") or closes[-2])
+        prev    = _previous_close(meta_yh, closes, current)
         if not prev:
             return None
 
@@ -2474,7 +2512,7 @@ async def get_indices() -> list[dict]:
             if len(closes) < 2:
                 return None
             current = float(m.get("regularMarketPrice") or closes[-1])
-            prev    = float(m.get("chartPreviousClose") or closes[-2])
+            prev    = _previous_close(m, closes, current)
             change_pct = ((current - prev) / prev * 100) if prev else 0
             return {
                 "symbol":     symbol,

@@ -164,6 +164,23 @@ async def crypto_prices():
         return JSONResponse({"status": "error", "message": str(exc)}, status_code=500)
 
 
+@app.middleware("http")
+async def no_heuristic_cache(request, call_next):
+    """Force la revalidation des fichiers du front (HTML/JS/CSS).
+
+    StaticFiles n'envoie ni Cache-Control ni Expires : le navigateur applique
+    alors un cache "heuristique" (~10 % de l'age du fichier). Un app.js vieux
+    de 2 mois pouvait ainsi rester en cache plusieurs jours -> l'utilisateur ne
+    voyait jamais les corrections. `no-cache` n'interdit pas le cache : il
+    impose juste un aller-retour de validation (reponse 304 quasi gratuite si
+    le fichier n'a pas bouge, grace a l'ETag deja envoye par StaticFiles).
+    """
+    response = await call_next(request)
+    if request.url.path.startswith("/static/") or request.url.path == "/":
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 # Static files and SPA fallback — must be declared after API routes
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -181,6 +198,13 @@ async def service_worker():
         media_type="application/javascript",
         headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
     )
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    # Le navigateur demande /favicon.ico d'office : on renvoie l'icone SVG de
+    # l'app plutot qu'un 404 qui pollue la console et les logs serveur.
+    return FileResponse("static/icon.svg", media_type="image/svg+xml")
 
 
 @app.get("/manifest.webmanifest")

@@ -9,7 +9,18 @@ load_dotenv()
 _cache: dict = {}
 CACHE_TTL = 300
 
-FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "")
+# Valeurs "gabarit" presentes dans .env.example : si l'utilisateur n'a pas
+# encore remplace le texte, la cle est consideree comme ABSENTE. Sans ca,
+# l'API repond 401 et l'app affiche "Finnhub a repondu 401" au lieu du message
+# clair "ajoutez votre cle dans .env".
+_PLACEHOLDERS = {"votre_cle_ici", "your_key_here", "changeme", "xxx", "none"}
+
+
+def _clean_key(name: str) -> str:
+    """Lit une variable d'environnement, en ignorant les valeurs gabarit."""
+    val = (os.getenv(name) or "").strip().strip('"').strip("'")
+    return "" if val.lower() in _PLACEHOLDERS else val
+FINNHUB_API_KEY = _clean_key("FINNHUB_API_KEY")
 
 POSITIVE_WORDS = {
     "gain", "rise", "jump", "surge", "soar", "beat", "record", "high",

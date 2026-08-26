@@ -6,7 +6,7 @@
 //
 // Pour forcer un refresh complet apres deploiement : bump CACHE_VERSION.
 
-const CACHE_VERSION = 'tr-v4';
+const CACHE_VERSION = 'tr-v5';
 const STATIC_CACHE  = `${CACHE_VERSION}-static`;
 const API_CACHE     = `${CACHE_VERSION}-api`;
 

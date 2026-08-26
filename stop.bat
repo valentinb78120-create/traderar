@@ -12,4 +12,4 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr :8000 ^| findstr LISTENING') 
 
 echo.
 echo  Serveur arrete.
-timeout /t 2 /nobreak >nul
+%SystemRoot%\System32\timeout.exe /t 2 /nobreak >nul

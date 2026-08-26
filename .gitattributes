@@ -1,0 +1,11 @@
+# ─────────────────────────────────────────────────────────────────────
+#  Fins de ligne — critique pour que le projet se lance sur TOUTE machine
+# ─────────────────────────────────────────────────────────────────────
+
+# Scripts shell : LF obligatoire. En CRLF, macOS/Linux repondent
+# "bad interpreter: /usr/bin/env bash^M" et le script ne demarre pas.
+*.sh text eol=lf
+
+# Scripts batch : CRLF obligatoire. cmd.exe parse mal les labels et les
+# blocs goto dans un fichier en LF.
+*.bat text eol=crlf

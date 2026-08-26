@@ -247,25 +247,43 @@ async function loadForex() {
 }
 function convertToEUR(value, currency) {
   if (!state.eurMode || !value || currency === 'EUR') return { value, currency };
-  // GBp = pence britanniques = 1/100 GBP (utilisé par Yahoo pour les actions UK)
-  if (currency === 'GBp' && state.forex.GBP) {
-    return { value: (value / 100) * state.forex.GBP, currency: 'EUR' };
-  }
-  if (currency === 'ZAc' && state.forex.ZAR) {
-    return { value: (value / 100) * state.forex.ZAR, currency: 'EUR' };
+  // Devises cotees en sous-unite (GBp, ZAc, ILA) : on divise par 100 puis on
+  // applique le taux de la devise majeure. Voir MINOR_UNITS plus bas.
+  const major = MINOR_UNITS[currency];
+  if (major) {
+    const r = state.forex[major];
+    if (!r) return { value, currency };           // pas de taux -> on n'invente rien
+    return { value: (value / 100) * r, currency: 'EUR' };
   }
   const rate = state.forex[currency];
   if (!rate) return { value, currency };
   return { value: value * rate, currency: 'EUR' };
 }
 
+// Devises cotees en SOUS-UNITE par Yahoo (1 unite majeure = 100 sous-unites).
+//   GBp = pence britanniques  -> GBP  (AZN.L cote 12476 GBp = 124,76 GBP)
+//   ZAc = cents sud-africains -> ZAR
+//   ILA = agorot israeliens   -> ILS
+// Sans cette table, Intl.NumberFormat interprete 'GBp' comme 'GBP' et affiche
+// "GBP 12 476" au lieu de "GBP 124,76" : prix faux d'un facteur 100.
+const MINOR_UNITS = { GBp: 'GBP', ZAc: 'ZAR', ILA: 'ILS' };
+
+// Convertit une valeur en sous-unite vers sa devise majeure.
+// Renvoie l'entree telle quelle si la devise n'est pas une sous-unite.
+function normalizeMinorUnit(value, currency) {
+  const major = MINOR_UNITS[currency];
+  if (!major || value == null) return { value, currency };
+  return { value: value / 100, currency: major };
+}
+
 function displayCurrency(currency) {
   if (state.eurMode) {
     if (currency === 'EUR') return 'EUR';
-    if (currency === 'GBp' && state.forex.GBP) return 'EUR';
+    if (MINOR_UNITS[currency] && state.forex[MINOR_UNITS[currency]]) return 'EUR';
     if (state.forex[currency]) return 'EUR';
   }
-  return currency;
+  // Hors mode EUR : on affiche la devise majeure (GBP), pas la sous-unite (GBp)
+  return MINOR_UNITS[currency] || currency;
 }
 
 // ── Watchlist (localStorage) ─────────────────────────────────────────
@@ -735,6 +753,10 @@ function fmtPrice(price, currency = 'USD') {
   if (price == null || isNaN(price)) return '—';
   const c = convertToEUR(price, currency);
   price = c.value; currency = c.currency;
+  // Si convertToEUR n'a rien converti (mode EUR off, ou pas de taux dispo),
+  // la devise peut encore etre une sous-unite -> on la ramene en unite majeure.
+  const n = normalizeMinorUnit(price, currency);
+  price = n.value; currency = n.currency;
   const locale = currency === 'EUR' ? 'fr-FR' : 'en-US';
   const decimals = price < 1 ? 4 : 2;
   return new Intl.NumberFormat(locale, {
