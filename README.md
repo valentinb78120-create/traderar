@@ -63,13 +63,13 @@ python -m uvicorn main:app --port 8000
 
 ## Clé API (facultative)
 
-L'application fonctionne **sans aucune clé à créer** : les prix, graphiques, indicateurs techniques et cryptomonnaies passent par Yahoo Finance et CoinGecko, deux services publics et gratuits qui ne demandent pas d'inscription.
+L'application fonctionne **sans aucune clé à créer** : les prix, graphiques, indicateurs techniques, cryptomonnaies et fondamentaux (capitalisation, P/E, dividende, croissance du chiffre d'affaires) passent par Yahoo Finance et CoinGecko, deux services publics et gratuits qui ne demandent pas d'inscription — et ce pour n'importe quel marché (US, Europe, Asie).
 
 Une clé **Finnhub** (service gratuit, inscription en moins d'une minute sur https://finnhub.io) débloque en plus :
 
 - les actualités des marchés et l'analyse de sentiment (positif/négatif),
-- les fondamentaux : capitalisation boursière, ratio P/E, rendement du dividende, croissance du chiffre d'affaires,
-- le calendrier économique et les publications de résultats trimestriels.
+- le calendrier économique et les publications de résultats trimestriels,
+- des fondamentaux légèrement plus précis sur les valeurs américaines (source utilisée en priorité quand la clé est présente, avec Yahoo Finance en repli partout ailleurs).
 
 Pour l'activer, ouvrez le fichier `.env` (créé automatiquement au premier lancement) et collez votre clé :
 
@@ -103,7 +103,7 @@ Et aussi : indicateurs techniques (RSI, MACD, moyennes mobiles, Bollinger, ATR, 
 
 - **Backend** — Python 3.10+ · FastAPI (framework web) · httpx (appels réseau asynchrones, c'est-à-dire que le serveur peut interroger plusieurs sources en même temps sans attendre l'une après l'autre)
 - **Frontend** — HTML / CSS / JavaScript "vanilla" (sans framework comme React ou Vue : du code simple et direct, zéro étape de compilation)
-- **Sources de données** — Yahoo Finance (prix + historique 1 an), Finnhub (fondamentaux, actualités, calendrier), CoinGecko (cryptomonnaies), open.er-api.com (taux de change)
+- **Sources de données** — Yahoo Finance (prix, historique 1 an, fondamentaux), Finnhub (fondamentaux US en priorité si une clé est fournie, actualités, calendrier), CoinGecko (cryptomonnaies), open.er-api.com (taux de change)
 - **PWA** — service worker (petit programme qui tourne en arrière-plan dans le navigateur pour gérer le cache et le mode hors ligne), manifest (fichier qui décrit l'app pour qu'elle soit installable)
 
 Aucune base de données : tout est gardé en mémoire vive le temps d'une session (5 minutes pour les prix, 24 heures pour les fondamentaux), pour rester sous les limites de requêtes des services gratuits sans avoir besoin d'un serveur de stockage.
@@ -181,6 +181,7 @@ traderadar/
 
 ## Limites connues
 
-- Plan gratuit Finnhub : 60 requêtes/minute et **fondamentaux US uniquement** (les valeurs européennes et asiatiques affichent « Fondamentaux non disponibles »).
+- Plan gratuit Finnhub : 60 requêtes/minute, utilisé uniquement pour les actualités et le calendrier (facultatifs) et en complément optionnel des fondamentaux US.
+- Les fondamentaux via Yahoo Finance (source par défaut, sans clé) ne sont pas disponibles à 100 % : les ETF n'ont pas de P/E par nature, et quelques titres isolés renvoient des champs vides selon le moment de la requête — le titre affiche alors « Fondamentaux non disponibles ».
 - CoinGecko public : 10 à 30 requêtes/minute.
 - Les prix sont indicatifs et peuvent accuser quelques minutes de retard.

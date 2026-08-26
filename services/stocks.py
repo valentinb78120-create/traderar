@@ -1,9 +1,12 @@
-"""Service stocks — combine Yahoo (prix + history) + Finnhub (fondamentaux US).
+"""Service stocks — combine Yahoo (prix + fondamentaux) + Finnhub (fondamentaux US, sentiment).
 
 Sources :
-- Yahoo Finance v8 chart : prix, history 1 an, 52S, devise (US + EU, gratuit, sans clé)
+- Yahoo Finance v8 chart : prix, history 1 an, 52S, devise (tous marchés, gratuit, sans clé)
 - Finnhub /stock/profile2 + /stock/metric : marketCap, P/E, dividende, croissance
-  (US uniquement sur le plan gratuit ; EU renverra 403 → fundamentals à null)
+  (US uniquement sur le plan gratuit ; EU/Asie renverra 403)
+- Yahoo Finance quoteSummary : mêmes fondamentaux que Finnhub, en repli — gratuit,
+  sans clé, TOUS marchés. Utilisé quand Finnhub est absent/indisponible/hors US,
+  ce qui couvre le cas d'un utilisateur qui vient de cloner le projet sans clé API.
 """
 import asyncio
 import os
@@ -546,21 +549,19 @@ async def _fetch_yahoo(meta: dict, client: httpx.AsyncClient) -> dict | None:
         return None
 
 
-# ── Finnhub : fondamentaux (cache 24h, US uniquement en gratuit) ─────
+# ── Finnhub : fondamentaux (US uniquement en gratuit, needs FINNHUB_API_KEY)
 
 async def _fetch_finnhub_fundamentals(symbol: str, client: httpx.AsyncClient) -> dict | None:
-    """Retourne marketCap, P/E, dividende, croissance — ou None si indisponible.
-    Skippe les tickers non-US car Finnhub free renvoie 403."""
-    cached = _fundamentals_cache.get(symbol)
-    if cached and time.time() - cached["ts"] < FUNDAMENTALS_TTL:
-        return cached["data"]
-
+    """Retourne marketCap, P/E, dividende, croissance via Finnhub — ou None
+    si indisponible (pas de cle, ticker non-US, rate limit). Ne met RIEN en
+    cache lui-meme : c'est _fetch_fundamentals() qui gere le cache, pour
+    pouvoir essayer la source Yahoo en repli sans etre bloque par un None
+    deja cache par cette fonction."""
     if not FINNHUB_API_KEY:
         return None
 
     # Skip non-US tickers (Finnhub free = 403)
     if "." in symbol:
-        _fundamentals_cache[symbol] = {"data": None, "ts": time.time()}
         return None
 
     try:
@@ -569,19 +570,12 @@ async def _fetch_finnhub_fundamentals(symbol: str, client: httpx.AsyncClient) ->
             _finnhub_get(client, "/stock/metric",   {"symbol": symbol, "metric": "all"}),
         )
 
-        # None = rate limit / reseau → PAS de cache, on reessaiera au prochain refresh
-        if profile_resp is None:
-            return None
-
-        # 403 = ticker non couvert en free tier (typique EU) → cache le None 24h
-        if profile_resp.status_code != 200:
-            _fundamentals_cache[symbol] = {"data": None, "ts": time.time()}
+        if profile_resp is None or profile_resp.status_code != 200:
             return None
 
         pj = profile_resp.json() or {}
         market_cap_m = pj.get("marketCapitalization")
         if not market_cap_m:
-            _fundamentals_cache[symbol] = {"data": None, "ts": time.time()}
             return None
 
         metric_data = {}
@@ -593,17 +587,132 @@ async def _fetch_finnhub_fundamentals(symbol: str, client: httpx.AsyncClient) ->
         div_yield = metric_data.get("dividendYieldIndicatedAnnual") or metric_data.get("currentDividendYieldTTM")
         rev_growth_pct = metric_data.get("revenueGrowthTTMYoy")  # déjà en %
 
-        data = {
+        return {
             "market_cap":     market_cap_m * 1_000_000,  # Finnhub renvoie en millions
             "pe_ratio":       round(pe, 2) if pe else None,
             "dividend_yield": round(div_yield, 2) if div_yield else None,
             "revenue_growth": round(rev_growth_pct / 100, 4) if rev_growth_pct else None,  # en fraction (0.1276 = 12.76%)
         }
-        _fundamentals_cache[symbol] = {"data": data, "ts": time.time()}
-        return data
     except Exception as exc:
         print(f"[stocks] Finnhub fundamentals error {symbol}: {exc!r}")
         return None
+
+
+# ── Yahoo Finance : fondamentaux de repli (aucune cle requise) ────────
+#
+# Sans FINNHUB_API_KEY (cas de tout utilisateur qui vient de cloner le
+# projet), la section "Fondamentaux" etait vide pour la quasi-totalite des
+# titres, et meme AVEC une cle, seuls les tickers US fonctionnent (403 sur
+# le plan gratuit pour l'Europe/l'Asie). Yahoo expose les memes chiffres
+# (cap. boursiere, P/E, dividende, croissance du CA) pour N'IMPORTE QUEL
+# marche, gratuitement — mais l'endpoint quoteSummary exige un cookie +
+# "crumb" anti-bot (contrairement au endpoint /chart utilise pour les prix).
+# On recupere ce crumb une seule fois et on le reutilise pour tous les
+# tickers, avec le MEME client HTTP (le crumb est lie au cookie de session).
+
+_yahoo_fundamentals_client: httpx.AsyncClient | None = None
+_yahoo_crumb: str | None = None
+_yahoo_crumb_ts = 0.0
+_yahoo_crumb_lock = asyncio.Lock()
+YAHOO_CRUMB_TTL = 3600  # 1h : marge de securite, Yahoo n'invalide pas si souvent
+
+
+def _get_yahoo_fundamentals_client() -> httpx.AsyncClient:
+    """Client HTTP persistant (jamais ferme) : le crumb Yahoo est valide
+    uniquement avec les cookies du client qui l'a obtenu.
+    Sans le header Accept: application/json de HEADERS : l'endpoint
+    /getcrumb repond en texte brut et renvoie 406 Not Acceptable si on
+    exige du JSON."""
+    global _yahoo_fundamentals_client
+    if _yahoo_fundamentals_client is None:
+        _yahoo_fundamentals_client = httpx.AsyncClient(
+            headers={"User-Agent": HEADERS["User-Agent"]}, timeout=10, follow_redirects=True,
+        )
+    return _yahoo_fundamentals_client
+
+
+async def _get_yahoo_crumb() -> str | None:
+    global _yahoo_crumb, _yahoo_crumb_ts
+    if _yahoo_crumb and time.time() - _yahoo_crumb_ts < YAHOO_CRUMB_TTL:
+        return _yahoo_crumb
+    async with _yahoo_crumb_lock:
+        if _yahoo_crumb and time.time() - _yahoo_crumb_ts < YAHOO_CRUMB_TTL:
+            return _yahoo_crumb  # deja rafraichi par une autre requete concurrente
+        try:
+            client = _get_yahoo_fundamentals_client()
+            await client.get("https://fc.yahoo.com")  # pose le cookie de session
+            r = await client.get("https://query2.finance.yahoo.com/v1/test/getcrumb")
+            crumb = r.text.strip()
+            if r.status_code == 200 and crumb and len(crumb) < 30:
+                _yahoo_crumb = crumb
+                _yahoo_crumb_ts = time.time()
+                return crumb
+        except Exception as exc:
+            print(f"[stocks] Yahoo crumb error: {exc!r}")
+        return None
+
+
+async def _fetch_yahoo_fundamentals(symbol: str) -> dict | None:
+    """Repli sans cle API : mêmes champs que Finnhub, pour tous les marches."""
+    crumb = await _get_yahoo_crumb()
+    if not crumb:
+        return None
+    try:
+        client = _get_yahoo_fundamentals_client()
+        r = await client.get(
+            f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{symbol}",
+            params={"modules": "price,summaryDetail,financialData", "crumb": crumb},
+        )
+        if r.status_code == 401:
+            # Le crumb a ete invalide cote serveur -> on en redemandera un neuf
+            global _yahoo_crumb
+            _yahoo_crumb = None
+            return None
+        if r.status_code != 200:
+            return None
+
+        results = ((r.json().get("quoteSummary") or {}).get("result")) or []
+        if not results:
+            return None
+        res = results[0]
+        price_mod = res.get("price", {}) or {}
+        summary   = res.get("summaryDetail", {}) or {}
+        financial = res.get("financialData", {}) or {}
+
+        market_cap = (price_mod.get("marketCap") or {}).get("raw")
+        if not market_cap:
+            return None
+        pe         = (summary.get("trailingPE") or {}).get("raw")
+        div_yield  = (summary.get("dividendYield") or {}).get("raw")      # fraction (0.0287 = 2.87%)
+        rev_growth = (financial.get("revenueGrowth") or {}).get("raw")   # deja en fraction
+
+        return {
+            "market_cap":     market_cap,
+            "pe_ratio":       round(pe, 2) if pe else None,
+            "dividend_yield": round(div_yield * 100, 2) if div_yield else None,
+            "revenue_growth": round(rev_growth, 4) if rev_growth is not None else None,
+        }
+    except Exception as exc:
+        print(f"[stocks] Yahoo fundamentals error {symbol}: {exc!r}")
+        return None
+
+
+async def _fetch_fundamentals(symbol: str, client: httpx.AsyncClient) -> dict | None:
+    """Finnhub d'abord (si une cle est configuree et le ticker est US),
+    sinon Yahoo (fonctionne partout, sans cle). Cache unique ici : les deux
+    sous-fonctions ne cachent rien elles-memes pour ne jamais bloquer le
+    repli sur un None mis en cache trop tot par l'autre source."""
+    cached = _fundamentals_cache.get(symbol)
+    if cached and time.time() - cached["ts"] < FUNDAMENTALS_TTL:
+        return cached["data"]
+
+    data = await _fetch_finnhub_fundamentals(symbol, client)
+    if not data:
+        data = await _fetch_yahoo_fundamentals(symbol)
+
+    if data:
+        _fundamentals_cache[symbol] = {"data": data, "ts": time.time()}
+    return data
 
 
 # ── Finnhub : sentiment news + recommandations analystes ─────────────
@@ -758,7 +867,7 @@ async def _get_vix() -> float | None:
 async def _fetch_full(meta: dict, client: httpx.AsyncClient) -> dict | None:
     yahoo_data, fundamentals, sentiment = await asyncio.gather(
         _fetch_yahoo(meta, client),
-        _fetch_finnhub_fundamentals(meta["symbol"], client),
+        _fetch_fundamentals(meta["symbol"], client),
         _fetch_finnhub_sentiment(meta["symbol"], client),
     )
     if not yahoo_data:
