@@ -2,40 +2,53 @@
 
 Tableau de bord d'investissement personnel — actions internationales, ETFs et cryptomonnaies, en temps quasi réel.
 
-Application web locale : un backend **FastAPI** agrège plusieurs sources de marché publiques, un front **vanilla JS sans framework** les affiche. Aucune donnée ne quitte votre machine.
-
 > ⚠️ Outil de recherche personnel. **Pas un conseil en investissement.**
 
 ---
 
-## Démarrage rapide
+## En deux mots (pour tout le monde)
 
-**Prérequis : Python 3.10 ou plus.** C'est tout — les scripts créent l'environnement virtuel et installent les dépendances au premier lancement.
+**Le problème que ça résout** : suivre des centaines d'actions et cryptos à la main, sur plein de sites différents, est long et pénible. TradeRadar rassemble tout au même endroit et met en avant automatiquement ce qui bouge ou qui a l'air intéressant.
+
+**Ce que fait concrètement l'application** :
+- Elle va chercher, toutes les 5 minutes, les prix de ~300 actions (Apple, LVMH, Airbus...), d'ETF et de cryptomonnaies (Bitcoin, Ethereum...) sur des sites financiers publics et gratuits.
+- Elle calcule pour chaque titre un **score sur 100** (façon "note") qui combine plusieurs indicateurs boursiers classiques, pour repérer en un coup d'œil ce qui monte fort, ce qui est sous-évalué, ou ce qui approche d'un plus bas sur un an.
+- Elle affiche tout ça dans un tableau de bord clair dans le navigateur : cartes, tableau compact, ou heatmap (carte de chaleur colorée) — trié, filtré par secteur ou région (Europe / USA / Asie), exportable en fichier tableur (CSV).
+- Elle affiche aussi les actualités financières du jour, un calendrier économique, et permet de simuler un portefeuille fictif pour suivre des positions sans y mettre un centime réel.
+- Elle fonctionne **en local, sur votre ordinateur** : aucune donnée personnelle n'est envoyée où que ce soit, il n'y a pas de compte à créer.
+
+**Comment on la fait tourner** : on double-clique sur un fichier (`start.bat` sous Windows, ou une commande sous Mac/Linux), et l'application s'installe et se lance toute seule, puis s'ouvre automatiquement dans le navigateur à l'adresse `http://localhost:8000` (c'est l'adresse "chez moi, sur ma machine" — rien ne sort sur Internet).
+
+**Ce que ça montre comme compétences** (pour un recruteur) : construire une application complète de bout en bout — un serveur qui va chercher et combine des données de plusieurs sources externes en temps réel, les traite avec des calculs financiers (indicateurs techniques), et les restitue dans une interface web réactive — tout en la rendant installable en une seule commande sur n'importe quel ordinateur, sans connaissance technique requise de la part de l'utilisateur final.
+
+---
+
+## Démarrage rapide (pour l'installer soi-même)
+
+**Prérequis : Python 3.10 ou plus** (langage de programmation gratuit — [python.org/downloads](https://www.python.org/downloads/) si besoin). Pas d'autre logiciel à installer : le script s'occupe du reste tout seul au premier lancement (il télécharge et installe les quelques bibliothèques nécessaires).
 
 ### Windows
-```
-start.bat
-```
-(double-clic, ou depuis un terminal)
+Double-cliquez sur `start.bat` (ou lancez-le depuis un terminal).
 
 ### macOS / Linux
+Dans un terminal, à la racine du projet :
 ```bash
-chmod +x start.sh   # une seule fois
+chmod +x start.sh   # une seule fois, autorise le script à s'exécuter
 ./start.sh
 ```
 
-Le navigateur s'ouvre automatiquement sur **http://localhost:8000**.
+Le navigateur s'ouvre tout seul sur **http://localhost:8000** après quelques secondes.
 
-Pour arrêter : `Ctrl+C` dans la fenêtre, ou `stop.bat` / `./stop.sh`.
+Pour arrêter : `Ctrl+C` dans la fenêtre du serveur, ou `stop.bat` / `./stop.sh`.
 
-Pour développer avec rechargement automatique à chaque modification d'un `.py` :
+Pour développer avec rechargement automatique à chaque modification d'un fichier `.py` :
 ```
 start.bat dev        # Windows
 ./start.sh dev       # macOS / Linux
 ```
 
 <details>
-<summary>Installation manuelle (si vous préférez)</summary>
+<summary>Installation manuelle, étape par étape (si vous préférez tout faire vous-même)</summary>
 
 ```bash
 python -m venv .venv
@@ -50,21 +63,21 @@ python -m uvicorn main:app --port 8000
 
 ## Clé API (facultative)
 
-L'application fonctionne **sans aucune clé** : prix, graphiques, indicateurs techniques et cryptos passent par Yahoo Finance et CoinGecko, qui sont publics.
+L'application fonctionne **sans aucune clé à créer** : les prix, graphiques, indicateurs techniques et cryptomonnaies passent par Yahoo Finance et CoinGecko, deux services publics et gratuits qui ne demandent pas d'inscription.
 
-Une clé **Finnhub** gratuite (https://finnhub.io, inscription en moins d'une minute) débloque en plus :
+Une clé **Finnhub** (service gratuit, inscription en moins d'une minute sur https://finnhub.io) débloque en plus :
 
-- les actualités des marchés et l'analyse de sentiment,
-- les fondamentaux : capitalisation, P/E, rendement du dividende, croissance du CA,
-- le calendrier économique et les publications de résultats.
+- les actualités des marchés et l'analyse de sentiment (positif/négatif),
+- les fondamentaux : capitalisation boursière, ratio P/E, rendement du dividende, croissance du chiffre d'affaires,
+- le calendrier économique et les publications de résultats trimestriels.
 
-Renseignez-la dans le fichier `.env` (créé automatiquement au premier lancement) :
+Pour l'activer, ouvrez le fichier `.env` (créé automatiquement au premier lancement) et collez votre clé :
 
 ```env
 FINNHUB_API_KEY=votre_cle
 ```
 
-Sans clé, ces sections affichent simplement un message d'invite — rien ne casse.
+Sans clé, ces sections affichent simplement un message d'invite — rien ne casse, le reste de l'application fonctionne normalement.
 
 ---
 
@@ -82,22 +95,24 @@ Sans clé, ces sections affichent simplement un message d'invite — rien ne cas
 | **Portefeuille simulé** | Suivi de positions fictives et de leur performance |
 | **Watchlist** | Vos tickers favoris, persistés dans le navigateur |
 
-Et aussi : indicateurs techniques (RSI, MACD, moyennes mobiles, Bollinger, ATR, ADX, OBV, MFI, CMF, divergences), sparklines 30 jours, position dans la fourchette 52 semaines, conversion EUR de toutes les devises, 3 modes d'affichage (cartes / compact / heatmap), export CSV, et **PWA installable** (service worker, fonctionne en lecture hors ligne).
+Et aussi : indicateurs techniques (RSI, MACD, moyennes mobiles, Bollinger, ATR, ADX, OBV, MFI, CMF, divergences — les outils classiques d'analyse technique boursière), sparklines 30 jours (mini-graphiques), position dans la fourchette 52 semaines (plus haut/plus bas de l'année), conversion automatique en euros de toutes les devises, 3 modes d'affichage (cartes / compact / heatmap), export CSV, et **PWA installable** (l'application peut s'ajouter comme une icône sur le bureau ou le téléphone, et reste consultable même hors connexion grâce à un cache local).
 
 ---
 
-## Stack
+## Comment ça marche techniquement (stack)
 
-- **Backend** — Python 3.10+ · FastAPI · httpx (appels asynchrones et parallélisés)
-- **Frontend** — HTML / CSS / JavaScript vanilla, zéro dépendance, zéro build
-- **Données** — Yahoo Finance (prix + historique 1 an), Finnhub (fondamentaux, news, calendrier), CoinGecko (cryptos), open.er-api.com (taux de change)
-- **PWA** — service worker (cache-first pour le shell, network-first pour l'API), manifest
+- **Backend** — Python 3.10+ · FastAPI (framework web) · httpx (appels réseau asynchrones, c'est-à-dire que le serveur peut interroger plusieurs sources en même temps sans attendre l'une après l'autre)
+- **Frontend** — HTML / CSS / JavaScript "vanilla" (sans framework comme React ou Vue : du code simple et direct, zéro étape de compilation)
+- **Sources de données** — Yahoo Finance (prix + historique 1 an), Finnhub (fondamentaux, actualités, calendrier), CoinGecko (cryptomonnaies), open.er-api.com (taux de change)
+- **PWA** — service worker (petit programme qui tourne en arrière-plan dans le navigateur pour gérer le cache et le mode hors ligne), manifest (fichier qui décrit l'app pour qu'elle soit installable)
 
-Aucune base de données : tout est mis en cache en mémoire (5 min pour les prix, 24 h pour les fondamentaux) afin de rester sous les limites de taux des API gratuites.
+Aucune base de données : tout est gardé en mémoire vive le temps d'une session (5 minutes pour les prix, 24 heures pour les fondamentaux), pour rester sous les limites de requêtes des services gratuits sans avoir besoin d'un serveur de stockage.
 
 ---
 
-## API
+## API (les "routes" que le serveur expose)
+
+Une API, ici, est simplement une liste d'adresses internes auxquelles le frontend (l'affichage) demande des données au backend (le serveur). Chaque ligne ci-dessous est une de ces adresses.
 
 | Méthode | Route | Description |
 |---|---|---|
@@ -137,16 +152,16 @@ EMERGING_WATCHLIST = [   # 109 valeurs : biotech, tech, semi-conducteurs
 ```
 
 `tr: True` signale les titres disponibles sur Trade Republic (un lien direct
-apparait alors sur la fiche).
+apparaît alors sur la fiche).
 
 Ajoutez vos propres tickers au format Yahoo Finance (`AAPL`, `AIR.PA`, `SAP.DE`, `7203.T`...).
 
 ---
 
-## Structure
+## Structure du projet
 
 ```
-traderar/
+traderadar/
 ├── main.py              # Routes FastAPI + service des fichiers statiques
 ├── services/
 │   ├── stocks.py        # Yahoo Finance, Finnhub, indicateurs, scoring
@@ -159,7 +174,7 @@ traderar/
 │   └── sw.js            # Service worker (PWA)
 ├── start.bat / start.sh # Lancement + installation automatique
 ├── stop.bat  / stop.sh  # Arrêt du serveur
-└── requirements.txt
+└── requirements.txt      # Liste des bibliothèques Python nécessaires
 ```
 
 ---
